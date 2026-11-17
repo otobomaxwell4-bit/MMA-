@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MMA.maxi.marvel</title>
+
+<style>
+* {
+  box-sizing: border-box;
+  font-family: Arial, sans-serif;
+}
+
+body {
+  margin: 0;
+  background: #101827;
+  color: white;
+}
+
+header {
+  background: #075e54;
+  padding: 20px;
+  text-align: center;
+}
+
+header h1 {
+  margin: 0;
+}
+
+.container {
+  max-width: 450px;
+  margin: 30px auto;
+  padding: 15px;
+}
+
+.card {
+  background: #1c293b;
+  padding: 22px;
+  border-radius: 14px;
+  margin-bottom: 18px;
+}
+
+input {
+  width: 100%;
+  padding: 14px;
+  margin: 9px 0;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+}
+
+button {
+  width: 100%;
+  padding: 14px;
+  margin-top: 10px;
+  background: #00a884;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+}
+
+.hidden {
+  display: none;
+}
+
+#status {
+  color: #a7f3d0;
+  overflow-wrap: anywhere;
+}
+
+.user-result {
+  background: #29394e;
+  padding: 12px;
+  border-radius: 8px;
+  margin-top: 10px;
+}
+</style>
+</head>
+
+<body>
+
+<header>
+<h1>MMA.maxi.marvel</h1>
+<p>Your world. Your people. Your messages.</p>
+</header>
+
+<div class="container">
+
+<div class="card" id="loginBox">
+<h2>Welcome to MMA</h2>
+<p>Sign in with your phone number.</p>
+
+<input id="phone" type="tel" placeholder="+2348012345678">
+
+<div id="recaptcha-container"></div>
+
+<button id="sendCode">Send verification code</button>
+
+<input id="verificationCode" placeholder="Enter SMS code">
+
+<button id="verifyCode">Verify and continue</button>
+</div>
+
+<div class="card hidden" id="usernameBox">
+<h2>Create your username</h2>
+<input id="newUsername" placeholder="Choose a username">
+<button id="createAccount">Create account</button>
+</div>
+
+<div class="card hidden" id="homeBox">
+<h2>Welcome to MMA!</h2>
+<p id="welcome"></p>
+
+<h3>Find people</h3>
+<input id="searchUsername" placeholder="Search username">
+<button id="searchButton">Search</button>
+
+<div id="searchResults"></div>
+
+<button id="logout" style="background:#b91c1c">
+Sign out
+</button>
+</div>
+
+<p id="status"></p>
+
+</div>
+
+<script type="module">
+
+import { initializeApp }
+from "https://www.gstatic.com/firebasejs/11.0.0/firebase-app.js";
+
+import {
+getAuth,
+RecaptchaVerifier,
+signInWithPhoneNumber,
+onAuthStateChanged,
+signOut
+} from "https://www.gstatic.com/firebasejs/11.0.0/firebase-auth.js";
+
+import {
+getFirestore,
+doc,
+getDoc,
+runTransaction,
+serverTimestamp
+} from "https://www.gstatic.com/firebasejs/11.0.0/firebase-firestore.js";
+
+
+/* FIREBASE CONFIGURATION */
+
+const firebaseConfig = {
+apiKey: "YOUR_API_KEY",
+authDomain: "YOUR_AUTH_DOMAIN",
+projectId: "YOUR_PROJECT_ID",
+storageBucket: "YOUR_STORAGE_BUCKET",
+messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+appId: "YOUR_APP_ID"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+const statusBox = document.getElementById("status");
+
+let confirmationResult = null;
+let recaptchaVerifier = null;
+
+function showStatus(message) {
+statusBox.textContent = message;
+}
+
+function showBox(boxId) {
+["loginBox", "usernameBox", "homeBox"].forEach(id => {
+document.getElementById(id).classList.add("hidden");
+});
+
+document.getElementById(boxId).classList.remove("hidden");
+}
+
+
+/* PHONE VERIFICATION */
+
+async function setupRecaptcha() {
+if (recaptchaVerifier) return;
+
+recaptchaVerifier = new RecaptchaVerifier(
+auth,
+"recaptcha-container",
+{ size: "normal" }
+);
+
+await recaptchaVerifier.render();
+}
+
+document.getElementById("sendCode").onclick = async () => {
+try {
+const phone = document.getElementById("phone").value.trim();
+
+if (!phone.startsWith("+")) {
+showStatus("Enter your country code, e.g. +234...");
+return;
+}
+
+await setupRecaptcha();
+
+showStatus("Sending code...");
+
+confirmationResult = await signInWithPhoneNumber(
+auth,
+phone,
+recaptchaVerifier
+);
+
+showStatus("Code sent. Check your SMS.");
+
+} catch (error) {
+showStatus(error.message);
+}
+};
+
+
+/* VERIFY CODE */
+
+document.getElementById("verifyCode").onclick = async () => {
+try {
+if (!confirmationResult) {
+showStatus("Request a code first.");
+return;
+}
+
+const code = document.getElementById("verificationCode")
+.value.trim();
+
+await confirmationResult.confirm(code);
+
+showStatus("Phone number verified!");
+
+} catch (error) {
+showStatus("Verification failed. Check the code.");
+}
+};
+
+
+/* CHECK ACCOUNT */
+
+onAuthStateChanged(auth, async user => {
+if (!user) {
+showBox("loginBox");
+return;
+}
+
+try {
+const userRef = doc(db, "users", user.uid);
+const userSnap = await getDoc(userRef);
+
+if (userSnap.exists()) {
+document.getElementById("welcome").textContent =
+"Signed in as @" + userSnap.data().username;
+
+showBox("homeBox");
+} else {
+showBox("usernameBox");
+}
+
+} catch (error) {
+showStatus("Account check failed: " + error.message);
+}
+});
+
+
+/* CREATE USERNAME */
+
+document.getElementById("createAccount").onclick = async () => {
+try {
+const user = auth.currentUser;
+const username = document.getElementById
